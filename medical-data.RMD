@@ -1,0 +1,369 @@
+---
+title: Sample Project
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(plotly)) install.packages("plotly", repos = "http://cran.us.r-project.org")
+library(dslabs)
+library(dplyr)
+library(caTools)
+library(writexl)
+library("data.table")
+```
+
+# DATASET
+
+## View Data
+
+###Load data from csv file
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+dataset = read.csv('Rx_Regional_Monthly_04_2023.csv')
+
+```
+
+### Structure of dataset
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+str(dataset)
+```
+
+
+### Sample data
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+head(dataset)
+```
+### Total rows in dataset
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+sprintf("%d Rows" ,nrow(dataset))
+```
+
+
+## Data Cleaning
+
+### Check if there are NA's in the data
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+colSums(is.na(dataset))
+```
+
+
+### Convert the metrics to integer taking care of comma in the value and add the ID's to the categorical dimensions 
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+modifiedDataset <- dataset %>%
+  mutate(TRx = as.numeric(gsub(",", "", TRx)),
+         EUTRx = as.numeric(gsub(",", "", EUTRx)),
+         RRx = as.numeric(gsub(",", "", RRx)),
+         NRx = as.integer(gsub(",", "", NRx)) 
+         )
+
+colPos <- c(1,2,3,4,5)
+modifiedDataset <-  modifiedDataset %>% mutate_at(colPos, funs(factor(.)))
+
+```
+
+### Structure of modified dataset
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+str(modifiedDataset)
+```
+
+
+### Check any values converted to NA's during char to integer conversion 
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+colSums(is.na(modifiedDataset))
+```
+# Data Analysis
+
+## GRID an CHART Analysis
+
+* Since its a large dataset we use boxplot to view the spread of data and used Log to make the data finite and in range
+
+### Data spread State wise TRx
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+ggplot(data = modifiedDataset,
+       mapping = aes(y = TRx, x = `ï..State`)) +
+  geom_boxplot() +
+  theme(legend.position = "none") +
+  ggtitle("Trx by State") +
+  scale_y_continuous("TRx (log)", labels = scales::comma) +
+  scale_x_discrete("State")  +
+  coord_flip()
+```
+
+### Channel wise TRx
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+ggplot(data = modifiedDataset, aes(x = Channel, y = log(TRx), fill = Channel)) +
+  geom_boxplot() +
+  theme(legend.position = "none") +
+  ggtitle("Trx by Channel") +
+  scale_y_continuous("TRx", labels = scales::comma) +
+  scale_x_discrete("Channel") +
+  coord_flip()
+```
+
+
+### Form TLC1 wise TRx
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+ggplot(data = modifiedDataset, aes(x = `Form..TLC1.`, y = log(TRx), fill = `Form..TLC1.`)) +
+  geom_boxplot() +
+  theme(legend.position = "none") +
+  ggtitle("Trx by Form TLC1") +
+  scale_y_continuous("TRx (log)", labels = scales::comma) +
+  scale_x_discrete("Form TLC1") +
+  coord_flip()
+```
+
+### Channel wise Form TLC1 By TRx
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+ggplot(data = modifiedDataset, aes(x = `Form..TLC1.`, y = log(TRx), fill = `Channel`)) +
+  geom_boxplot() +
+  theme(legend.position = "bottom") +
+  ggtitle("Each Channel spread Form TLC1 By TRx") +
+  scale_y_continuous("TRx (log)", labels = scales::comma) +
+  scale_x_discrete("Form TLC1") +
+  coord_flip()
+```
+
+
+
+### Top 10 Form TLC1 by Channel based on mean TRx
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+##filter data 
+df2 <- 
+  modifiedDataset %>% group_by(`Form..TLC1.`,`Channel` ) %>% 
+  summarise(MeanTrx = mean(`TRx`)) %>% 
+  arrange(desc(MeanTrx)) %>% head(10) 
+
+#plot Most Expensive Building Types by Borough
+df2 %>%
+  arrange(desc(MeanTrx)) %>% 
+ggplot( aes(x = `Form..TLC1.`, y = MeanTrx, fill = `Channel`)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme(legend.position = "bottom") +
+  ggtitle("Top 10 Form TLC1 by Channel based on mean TRx") +
+  scale_y_continuous("Form TLC1", labels = scales::comma) +
+  scale_x_discrete("TRx") 
+```
+
+
+### Create random sample of dataset based on channel
+```{r eval= TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+dat_small <- modifiedDataset %>% 
+  group_by(Channel) %>%
+  slice_sample(n=5000)
+sprintf("%d sample of Rows grouping by channel" ,nrow(dat_small))
+
+```
+
+### Relation metrics NRx and EUTRx with channel wise
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+
+ggplot(data = dat_small, aes(x = log(TRx), y = log(EUTRx), color = `Channel`)) +
+  geom_jitter() +
+  geom_smooth(method = "lm", colour="black", size=0.5, linetype = "dashed") +
+  theme(legend.position = "bottom") +
+  facet_wrap(~ Channel) +
+  ggtitle("TRx Vs EUTRx Channel Wise") +
+  scale_y_continuous("Trx", labels = scales::comma) +
+  scale_x_continuous("EUTRx", labels = scales::comma) 
+
+```
+
+# Predective Analysis
+
+
+### Spliting the data into Training And Test Set in 80-20 ratio
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+#split it into training set
+set.seed(3287)
+split = sample.split(modifiedDataset$TRx, SplitRatio = 0.8)
+training_set = subset(modifiedDataset, split == TRUE)
+test_set = subset(modifiedDataset, split == FALSE)
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+sprintf("%d Rows Training Set" ,nrow(training_set))
+sprintf("%d Rows Test Set" ,nrow(test_set))
+```
+## Correlation
+
+### Generating corelated table between the feature
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+library(corrplot)
+#calculate correlation
+distance_corr <- vapply(training_set, 
+                        function(x) { cor(training_set$TRx, as.numeric(x), use = "pairwise.complete.obs") }, 
+                        FUN.VALUE = numeric(1))
+effect_corr <- vapply(distance_corr, function(x) { ifelse(x >= 0, "Positive", "Negative")}, 
+                      FUN.VALUE = character(1))
+var_corr <- names(training_set)
+
+# create correlation table
+table1 <- data.frame(var_corr, abs(distance_corr), effect_corr)
+table1 <- table1[order(-abs(distance_corr)),]
+names(table1) <- c("Column/Variable", "Correlation Size", "Correlation Effect")
+table1
+
+temp <- training_set[,c(1:9)]    
+num <- c(1:9)
+temp <- temp %>% mutate_at(num, funs(as.numeric(.)))
+#plot table of correlations
+corrplot(cor(temp), type = "upper",order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+corrplot(cor(temp), method="number",number.cex = 0.5)
+```
+
+## Multi Regression Modal
+
+
+
+### Handeling the items thats present in test set and not present in traning set 
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+#predict Data
+data_test_new <- test_set
+data_test_new$Specialty[which(!(data_test_new$Specialty %in% unique(training_set$Specialty)))] <- NA
+data_test_new$Channel[which(!(data_test_new$Channel %in% unique(training_set$Channel)))] <- NA
+data_test_new$ï..State[which(!(data_test_new$ï..State %in% unique(training_set$ï..State)))] <- NA
+data_test_new$Form..TLC1.[which(!(data_test_new$Form..TLC1. %in% unique(training_set$Form..TLC1.)))] <- NA
+```
+
+### Apply all metrics column in the modal
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+regressor = lm(formula = TRx ~ . ,
+               data = training_set)
+
+#Summary of the regression
+# summary(regressor)
+
+rSquared<- summary(regressor)$r.squared
+standerdError <- summary(regressor)$sigma
+sprintf("R Square: %f" ,rSquared)
+sprintf("Standerd Error: %f" ,standerdError)
+
+
+```
+
+### Predict the result
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+y_pred_test = predict(regressor, newdata = data_test_new)
+
+
+# write_xlsx( data.frame(data_test_new) , "TestData.xlsx")
+# write_xlsx( data.frame(y_pred_test) , "predict.xlsx")
+```
+
+
+### Visualising the multi Linear Regression results Channel, TRx and Predicted TRx
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+ggplot() +
+  geom_point(aes(x = data_test_new$Channel, y = data_test_new$TRx) , 
+             color="red") +
+  geom_line(aes(x= data_test_new$Channel, y = y_pred_test ),
+            color="blue") +
+  ggtitle('Truth or Bluff (Linear Regression) Predicted Vs Actual') +
+  scale_y_continuous("TRX", labels = scales::comma) +
+  scale_x_discrete("Channel") +
+  xlab('Channel') +
+  ylab('TRx')
+
+```
+
+### Visualising the multi Linear Regression results EUTRx, TRx and Predicted TRx
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+ggplot() +
+  geom_point(aes(x = data_test_new$EUTRx, y = data_test_new$TRx) , 
+             color="red") +
+  geom_line(aes(x= data_test_new$EUTRx, y = y_pred_test ),
+            color="blue") +
+ ggtitle('Truth or Bluff (Linear Regression) Predicted Vs Actual') +
+  scale_y_continuous("TRX", labels = scales::comma) +
+  scale_x_discrete("EUTRx", labels = scales::comma) +
+  xlab('EUTRx') +
+  ylab('TRx')
+
+```
+
+
+### Apply all correlative NRx,RRx,EUTRx,Channel,Form TLC1 for predecting TRX  
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+regressor = lm(formula = TRx ~ `NRx` + `RRx` + Channel + `Form..TLC1.` ,
+               data = training_set)
+
+rSquared<- summary(regressor)$r.squared
+standerdError <- summary(regressor)$sigma
+sprintf("R Square: %f" ,rSquared)
+sprintf("Standerd Error: %f" ,standerdError)
+
+
+y_pred_test = predict(regressor, newdata =  data_test_new)
+```
+
+### Apply all metrics NRx ,RRx for predecting TRX 
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+regressor = lm(formula = TRx ~ `NRx` + `RRx` +`EUTRx` ,
+               data = training_set)
+
+#Summary of the regression
+summary(regressor)
+
+rSquared<- summary(regressor)$r.squared
+sprintf("R Square: %f" ,rSquared)
+standerdError <- summary(regressor)$sigma
+sprintf("Standerd Error: %f" ,standerdError)
+
+y_pred_test = predict(regressor, newdata = data_test_new )
+
+```
+
+## Random Forest Modal
+
+### Modal with NRx,RRx for predecting TRX with 2 node
+```{r, echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE}
+
+library(randomForest)
+
+# now try with 10, 100, 500 tree
+regressor=randomForest(TRx ~  `NRx` + `RRx`  , data=training_set, na.action=na.omit,ntree=2)
+
+y_pred =predict(regressor, newdata = test_set )
+# write_xlsx( data.frame(y_pred) , "PredDiadata.xlsx")
+```
+
+### Visualising the multi Random Forest results Channel, TRx and Predicted TRx
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+ggplot() +
+  geom_point(aes(x = test_set$Channel, y = test_set$TRx) , 
+             color="red") +
+  geom_line(aes(x= test_set$Channel, y = y_pred ),
+            color="blue") +
+  ggtitle('Truth or Bluff (Linear Regression) Predicted Vs Actual') +
+  scale_y_continuous("TRX", labels = scales::comma) +
+  scale_x_discrete("Channel") +
+  xlab('Channel') +
+  ylab('TRx')
+
+```
+
+### Visualising the multi Random Forest results EUTRx, TRx and Predicted TRx
+```{r, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+ggplot() +
+  geom_point(aes(x = test_set$EUTRx, y = test_set$TRx) , 
+             color="red") +
+  geom_line(aes(x= test_set$EUTRx, y = y_pred ),
+            color="blue") +
+ ggtitle('Truth or Bluff (Random Forest) Predicted Vs Actual') +
+  scale_y_continuous("TRX", labels = scales::comma) +
+  scale_x_discrete("EUTRx", labels = scales::comma) +
+  xlab('EUTRx') +
+  ylab('TRx')
+
+```
+
+
+
+
